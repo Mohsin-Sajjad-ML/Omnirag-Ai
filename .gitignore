@@ -1,0 +1,54 @@
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.local
+config.local.*
+secrets.*
+credentials.*
+*credentials*
+*secret*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python environments, caches, and test artifacts
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js dependencies and frontend build output
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local databases and vector-store data
+*.db
+*.sqlite
+*.sqlite3
+app/chroma_data/
+chroma_data/
+
+# Runtime uploads, generated files, temporary files, and logs
+uploads/
+uploaded_files/
+runtime/
+generated/
+tmp/
+temp/
+*.log
+logs/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
