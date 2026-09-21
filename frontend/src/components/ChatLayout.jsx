@@ -1,54 +1,81 @@
-import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Plus,
-  MessageSquare,
-  Trash2,
-  Send,
-  Bot,
-  User,
-  LogOut,
-  Camera,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  Loader2,
-  FileText,
-  ChevronDown,
-  Menu,
-  X,
-  Sparkles,
-  Layers,
-  SearchX,
-  ScanFace,
-  ShieldCheck,
-} from 'lucide-react';
+import { useReducedMotion } from 'motion/react';
+import { UploadCloud } from 'lucide-react';
+
 import { useAuth } from '../context/AuthContext';
+import { useClerk, useUser } from '@clerk/clerk-react';
 import api from '../services/api';
 
-/**
- * Formats ISO timestamp to human-friendly relative time.
- */
-function formatRelativeTime(dateString) {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffInSeconds = Math.floor((now - date) / 1000);
-
-  if (diffInSeconds < 60) return 'Just now';
-  const diffInMinutes = Math.floor(diffInSeconds / 60);
-  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-  const diffInHours = Math.floor(diffInMinutes / 60);
-  if (diffInHours < 24) return `${diffInHours}h ago`;
-  const diffInDays = Math.floor(diffInHours / 24);
-  if (diffInDays < 7) return `${diffInDays}d ago`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+import ChatSidebar from './chat/ChatSidebar';
+import ChatChatMessageList from './chat/ChatMessageList';
+import ChatInputBar from './chat/ChatInputBar';
+import ChatSettingsModal from './chat/ChatSettingsModal';
 
 export const ChatLayout = () => {
+  const osReducedMotion = useReducedMotion();
+  const [manualReduceMotion, setManualReduceMotion] = useState(() => {
+    return localStorage.getItem('omnirag_reduce_motion') === 'true';
+  });
+  const shouldReduceMotion = Boolean(osReducedMotion || manualReduceMotion);
+
+  const toggleManualReduceMotion = () => {
+    setManualReduceMotion((prev) => {
+      const next = !prev;
+      localStorage.setItem('omnirag_reduce_motion', String(next));
+      return next;
+    });
+  };
+
   const { user, loginMethod, logout } = useAuth();
   const navigate = useNavigate();
+  const { signOut } = useClerk();
+  const { user: clerkUser } = useUser();
+
+  // Collapsible sidebar state (persisted in localStorage)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('omnirag_sidebar_collapsed') === 'true';
+  });
+  const [collapsedSearchOpen, setCollapsedSearchOpen] = useState(false);
+
+  // Settings modal state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('appearance');
+
+  // Account deletion confirmation dialog state
+  const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
+  const [deleteAccountInput, setDeleteAccountInput] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+
+  // Clear all chats confirmation dialog state
+  const [clearChatsModalOpen, setClearChatsModalOpen] = useState(false);
+  const [clearChatsInput, setClearChatsInput] = useState('');
+  const [isClearingChats, setIsClearingChats] = useState(false);
+
+  // Default toggles for new conversations (persisted in localStorage)
+  const [defaultRagEnabled, setDefaultRagEnabled] = useState(() => {
+    const val = localStorage.getItem('omnirag_default_rag');
+    return val !== null ? val === 'true' : true;
+  });
+  const [defaultWebSearchEnabled, setDefaultWebSearchEnabled] = useState(() => {
+    const val = localStorage.getItem('omnirag_default_web');
+    return val !== null ? val === 'true' : false;
+  });
+
+  const updateDefaultRag = (val) => {
+    setDefaultRagEnabled(val);
+    localStorage.setItem('omnirag_default_rag', String(val));
+  };
+
+  const updateDefaultWeb = (val) => {
+    setDefaultWebSearchEnabled(val);
+    localStorage.setItem('omnirag_default_web', String(val));
+  };
+
+  // Active chat session toggles
+  const [ragEnabled, setRagEnabled] = useState(defaultRagEnabled);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(defaultWebSearchEnabled);
 
   // Sidebar mobile drawer state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -56,13 +83,35 @@ export const ChatLayout = () => {
   // User menu dropdown in top right
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  // Personalized welcome banner at top of chat area (auto-dismisses or manually dismissible)
+  // Personalized welcome banner at top of chat area
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
 
   // Sessions state
   const [sessions, setSessions] = useState([]);
+  const [sessionSearch, setSessionSearch] = useState('');
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
+
+  // Filtered sessions based on search bar query
+  const filteredSessions = useMemo(() => {
+    if (!sessionSearch.trim()) return sessions;
+    const q = sessionSearch.toLowerCase().trim();
+    return sessions.filter((s) => (s.title || '').toLowerCase().includes(q));
+  }, [sessions, sessionSearch]);
+
+  const [activeContextMenu, setActiveContextMenu] = useState(null);
+  const [isUndoDeleting, setIsUndoDeleting] = useState(false);
+  const [undoSessionData, setUndoSessionData] = useState(null);
+  const deleteTimeoutRef = useRef(null);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingMessageContent, setEditingMessageContent] = useState('');
+  const [editingSessionId, setEditingSessionId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const uploadMenuRef = useRef(null);
+
+  // Active citation for popup modal with layoutId
+  const [activeCitation, setActiveCitation] = useState(null);
 
   // Messages state for active session
   const [messages, setMessages] = useState([]);
@@ -74,8 +123,17 @@ export const ChatLayout = () => {
 
   // Documents state for document scope selector
   const [documents, setDocuments] = useState([]);
-  const [selectedDocIds, setSelectedDocIds] = useState([]); // empty array = all documents
+  const [selectedDocIds, setSelectedDocIds] = useState([]);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+
+  const filteredScopeDocuments = useMemo(() => {
+    if (!docSearchQuery.trim()) return documents;
+    const q = docSearchQuery.toLowerCase().trim();
+    return documents.filter((doc) =>
+      (doc.original_filename || '').toLowerCase().includes(q)
+    );
+  }, [documents, docSearchQuery]);
 
   // Inline system notifications (e.g. uploads in progress/completed)
   const [inlineEvents, setInlineEvents] = useState([]);
@@ -89,16 +147,212 @@ export const ChatLayout = () => {
   const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'txt', 'csv'];
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
-  // Auto-scroll chat to bottom
-  const scrollToBottom = () => {
+  const uploadMenuItems = [
+    {
+      id: 'upload-document',
+      label: 'Upload a document',
+      icon: UploadCloud,
+      action: () => fileInputRef.current?.click(),
+    },
+  ];
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
+
+  const handleRevealComplete = useCallback((msgId) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, animateReveal: false } : m))
+    );
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, inlineEvents, isSending]);
+  }, [messages, inlineEvents, isSending, scrollToBottom]);
 
-  // Click outside listener for dropdowns (Document selector and User menu)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        activeContextMenu &&
+        !e.target.closest('.session-context-menu-container') &&
+        !e.target.closest('.session-context-trigger')
+      ) {
+        setActiveContextMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeContextMenu]);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingChunksRef = audioChunksRef;
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const isCancelledRef = useRef(false);
+  const isRecordingCancelledRef = isCancelledRef;
+  const [audioLevels, setAudioLevels] = useState([6, 12, 18, 12, 6]);
+
+  // Language-aware speech synthesis
+  const handleReadAloud = useCallback((content, responseLanguage) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(content);
+    const voices = window.speechSynthesis.getVoices();
+    if (responseLanguage === 'roman-ur') {
+      const urduVoice = voices.find(
+        (v) => v.lang.toLowerCase().startsWith('ur') || v.lang.includes('ur-PK')
+      );
+      if (urduVoice) {
+        utterance.voice = urduVoice;
+      } else {
+        utterance.lang = 'ur-PK';
+      }
+    } else {
+      const engVoice = voices.find((v) => v.lang.toLowerCase().startsWith('en'));
+      if (engVoice) {
+        utterance.voice = engVoice;
+      } else {
+        utterance.lang = 'en-US';
+      }
+    }
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  const startVoiceRecording = async () => {
+    try {
+      isCancelledRef.current = false;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const audioCtx = new AudioCtx();
+          audioContextRef.current = audioCtx;
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 64;
+          source.connect(analyser);
+          analyserRef.current = analyser;
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const sampleAudio = () => {
+            if (!analyserRef.current) return;
+            analyserRef.current.getByteFrequencyData(dataArray);
+            const b0 = Math.max(4, Math.round((dataArray[1] / 255) * 18));
+            const b1 = Math.max(4, Math.round((dataArray[3] / 255) * 22));
+            const b2 = Math.max(4, Math.round((dataArray[6] / 255) * 24));
+            const b3 = Math.max(4, Math.round((dataArray[9] / 255) * 22));
+            const b4 = Math.max(4, Math.round((dataArray[12] / 255) * 18));
+            setAudioLevels([b0, b1, b2, b3, b4]);
+            animFrameRef.current = requestAnimationFrame(sampleAudio);
+          };
+          sampleAudio();
+        }
+      } catch (audioErr) {
+        console.warn('AudioContext setup skipped or unsupported:', audioErr);
+      }
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+        }
+        analyserRef.current = null;
+        stream.getTracks().forEach((t) => t.stop());
+
+        if (isCancelledRef.current) {
+          isCancelledRef.current = false;
+          audioChunksRef.current = [];
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        audioChunksRef.current = [];
+        if (audioBlob.size > 0) {
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'recording.webm');
+          setIsTranscribing(true);
+          try {
+            const res = await api.post('/chat/transcribe', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            const transcribed = (res.data?.transcript || res.data?.text || '').trim();
+            if (transcribed) {
+              setInputQuery(transcribed);
+              await handleSendMessage(null, transcribed);
+            }
+          } catch (err) {
+            console.error('Transcription error:', err);
+          } finally {
+            setIsTranscribing(false);
+          }
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone error:', err);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    isCancelledRef.current = false;
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // Distinct Stop & Send vs Cancel & Discard controls
+  // "Stop and send voice recording", "Cancel and discard recording", "Rec"
+  const handleCancelRecording = () => {
+    isCancelledRef.current = true;
+    isRecordingCancelledRef.current = true;
+    recordingChunksRef.current = [];
+    audioChunksRef.current = [];
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const cancelVoiceRecording = handleCancelRecording;
+
+  const toggleVoiceRecording = () => {
+    if (isRecording) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
+    }
+  };
+
   useEffect(() => {
     function handleClickOutside(e) {
       if (docSelectorRef.current && !docSelectorRef.current.contains(e.target)) {
@@ -107,12 +361,14 @@ export const ChatLayout = () => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
         setUserMenuOpen(false);
       }
+      if (uploadMenuRef.current && !uploadMenuRef.current.contains(e.target)) {
+        setShowUploadMenu(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Auto-dismiss welcome banner after 8 seconds so it doesn't persistently occupy space
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowWelcomeBanner(false);
@@ -120,7 +376,6 @@ export const ChatLayout = () => {
     return () => clearTimeout(timer);
   }, [user]);
 
-  // Fetch indexed documents for the active user in the background
   const fetchUserDocuments = async () => {
     if (!user) return;
     try {
@@ -131,13 +386,9 @@ export const ChatLayout = () => {
     }
   };
 
-  // ===========================================================================
-  // 1. Initial Load: Fetch sessions and documents automatically on mount/login
-  // ===========================================================================
   useEffect(() => {
     let isCurrent = true;
 
-    // Reset all session and document state when user changes to prevent flashing old data
     setSessions([]);
     setActiveSessionId(null);
     setMessages([]);
@@ -151,7 +402,6 @@ export const ChatLayout = () => {
 
     if (!user) return;
 
-    // Fetch user documents in the background immediately on login/mount
     const loadDocs = async () => {
       try {
         const res = await api.get(`/documents/${encodeURIComponent(user)}`);
@@ -166,7 +416,6 @@ export const ChatLayout = () => {
     };
     loadDocs();
 
-    // Fetch user sessions and auto-load most recent session if one exists
     const initSessions = async () => {
       setLoadingSessions(true);
       try {
@@ -176,12 +425,10 @@ export const ChatLayout = () => {
         setSessions(sessionList);
 
         if (sessionList.length > 0) {
-          // If user has at least one existing session, automatically open their most recent session
           const mostRecentId = sessionList[0].id || sessionList[0].session_id;
           setActiveSessionId(mostRecentId);
           loadSessionMessages(mostRecentId);
         } else {
-          // If no sessions yet, keep activeSessionId null to show clean "Start your first chat" empty state
           setActiveSessionId(null);
           setMessages([]);
         }
@@ -203,13 +450,10 @@ export const ChatLayout = () => {
     };
   }, [user]);
 
-  // ===========================================================================
-  // 2. Load messages for a given session
-  // ===========================================================================
   const loadSessionMessages = async (sessionId) => {
     if (!sessionId) return;
     setLoadingMessages(true);
-    setInlineEvents([]); // Reset inline upload banners for newly selected session
+    setInlineEvents([]);
     try {
       const res = await api.get(`/chat/sessions/${sessionId}/messages`);
       setMessages(res.data || []);
@@ -220,110 +464,214 @@ export const ChatLayout = () => {
     }
   };
 
-  // ===========================================================================
-  // 3. Switch active session
-  // ===========================================================================
   const handleSelectSession = (sessionId) => {
     if (sessionId === activeSessionId) return;
     setActiveSessionId(sessionId);
+    setSidebarOpen(false);
+    setCollapsedSearchOpen(false);
     loadSessionMessages(sessionId);
-    setSidebarOpen(false); // Close mobile drawer
   };
 
-  // ===========================================================================
-  // 4. Create a new session ("+ New Chat")
-  // ===========================================================================
   const handleCreateNewSession = async () => {
     try {
       const res = await api.post('/chat/sessions', { username: user });
       const newSession = res.data;
-      const newSessionId = newSession.session_id || newSession.id;
-
       const formatted = {
-        id: newSessionId,
-        session_id: newSessionId,
+        id: newSession.session_id || newSession.id,
+        session_id: newSession.session_id || newSession.id,
         title: newSession.title || 'New Chat',
         created_at: newSession.created_at,
+        pinned: false,
       };
 
       setSessions((prev) => [formatted, ...prev]);
-      setActiveSessionId(newSessionId);
+      setActiveSessionId(formatted.id);
       setMessages([]);
       setInlineEvents([]);
+      setInputQuery('');
       setSidebarOpen(false);
-      return newSessionId;
+      setCollapsedSearchOpen(false);
+
+      setRagEnabled(defaultRagEnabled);
+      setWebSearchEnabled(defaultWebSearchEnabled);
     } catch (err) {
       console.error('Error creating new session:', err);
     }
   };
 
-  // ===========================================================================
-  // 5. Delete session with confirmation prompt
-  // ===========================================================================
-  const handleDeleteSession = async (e, sessionId) => {
+  const handleStartRenameSession = (e, sess) => {
     e.stopPropagation();
-    const confirmed = window.confirm('Are you sure you want to delete this chat session? All its messages will be permanently removed.');
-    if (!confirmed) return;
+    setEditingSessionId(sess.id);
+    setEditingTitle(sess.title || 'New Chat');
+  };
+
+  const handleSaveSessionTitle = async (sessionId, oldTitle) => {
+    const trimmed = editingTitle.trim();
+    setEditingSessionId(null);
+
+    if (!trimmed || trimmed === oldTitle) {
+      return;
+    }
+
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, title: trimmed } : s))
+    );
 
     try {
-      await api.delete(`/chat/sessions/${sessionId}`, {
-        data: { username: user },
-        params: { username: user },
-      });
-
-      const remaining = sessions.filter((s) => s.id !== sessionId);
-      setSessions(remaining);
-
-      // If active session was deleted, switch to first remaining or show empty state
-      if (activeSessionId === sessionId) {
-        if (remaining.length > 0) {
-          const nextId = remaining[0].id;
-          setActiveSessionId(nextId);
-          loadSessionMessages(nextId);
-        } else {
-          setActiveSessionId(null);
-          setMessages([]);
-        }
-      }
+      await api.patch(`/chat/sessions/${sessionId}`, { title: trimmed });
     } catch (err) {
-      console.error('Error deleting session:', err);
-      alert('Failed to delete chat session. Please try again.');
+      console.error('Error renaming session:', err);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, title: oldTitle } : s))
+      );
     }
   };
 
-  // ===========================================================================
-  // 6. Clean Logout Flow: Clears in-memory states and redirects
-  // ===========================================================================
-  const handleLogout = () => {
-    // Clear all in-memory states
-    setSessions([]);
-    setActiveSessionId(null);
-    setMessages([]);
-    setDocuments([]);
-    setSelectedDocIds([]);
-    setInlineEvents([]);
-    setInputQuery('');
-    setUserMenuOpen(false);
-    setDocSelectorOpen(false);
+  const handleTogglePinSession = async (sessionId, shouldPin) => {
+    setActiveContextMenu(null);
+    setSessions((prev) => {
+      const updated = prev.map((s) => (s.id === sessionId ? { ...s, pinned: shouldPin } : s));
+      return updated.sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      });
+    });
 
-    // Clear AuthContext & session storage
-    logout();
-
-    // Redirect to login choice
-    navigate('/');
+    try {
+      await api.patch(`/chat/sessions/${sessionId}/pin`, { pinned: shouldPin });
+    } catch (err) {
+      console.error('Error toggling pin status:', err);
+    }
   };
 
-  // ===========================================================================
-  // 7. Send message
-  // ===========================================================================
-  const handleSendMessage = async (e) => {
+  const handleInitiateDeleteSession = (sess) => {
+    setActiveContextMenu(null);
+    if (deleteTimeoutRef.current) {
+      clearTimeout(deleteTimeoutRef.current);
+    }
+
+    const sessIndex = sessions.findIndex((s) => s.id === sess.id);
+    const targetId = sess.id;
+    const remaining = sessions.filter((s) => s.id !== targetId);
+
+    setUndoSessionData({ session: sess, index: sessIndex });
+    setIsUndoDeleting(true);
+    setSessions(remaining);
+
+    if (activeSessionId === targetId) {
+      if (remaining.length > 0) {
+        const nextId = remaining[0].id;
+        setActiveSessionId(nextId);
+        loadSessionMessages(nextId);
+      } else {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+    }
+
+    deleteTimeoutRef.current = setTimeout(async () => {
+      try {
+        await api.delete(`/chat/sessions/${targetId}`);
+      } catch (err) {
+        console.error('Error deleting session on server:', err);
+      } finally {
+        setIsUndoDeleting(false);
+        setUndoSessionData(null);
+      }
+    }, 5000);
+  };
+
+  const handleUndoDelete = () => {
+    if (deleteTimeoutRef.current) {
+      clearTimeout(deleteTimeoutRef.current);
+    }
+    if (!undoSessionData) return;
+
+    const { session, index } = undoSessionData;
+    setSessions((prev) => {
+      const next = [...prev];
+      next.splice(index, 0, session);
+      return next;
+    });
+
+    setActiveSessionId(session.id);
+    loadSessionMessages(session.id);
+
+    setIsUndoDeleting(false);
+    setUndoSessionData(null);
+  };
+
+  const handleExportSession = async (sessionId, format, mode = 'full', sessionTitle = 'chat') => {
+    setActiveContextMenu(null);
+    try {
+      const response = await api.get(`/chat/sessions/${sessionId}/export`, {
+        params: { format, mode },
+        responseType: 'blob',
+      });
+
+      const blob = new Blob([response.data], {
+        type: format === 'pdf' ? 'application/pdf' : 'text/plain; charset=utf-8',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeTitle = (sessionTitle || 'chat').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+      const suffix = mode === 'context' ? '_context' : '';
+      link.download = `${safeTitle}${suffix}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exporting session:', err);
+      alert('Failed to export session. Please try again.');
+    }
+  };
+
+  const handleDuplicateSession = async (sessionId) => {
+    setActiveContextMenu(null);
+    try {
+      const res = await api.post(`/chat/sessions/${sessionId}/duplicate`);
+      const newSession = res.data;
+      const formatted = {
+        id: newSession.session_id || newSession.id,
+        session_id: newSession.session_id || newSession.id,
+        title: newSession.title,
+        created_at: newSession.created_at,
+        pinned: false,
+      };
+
+      setSessions((prev) => [formatted, ...prev]);
+      setActiveSessionId(formatted.id);
+      loadSessionMessages(formatted.id);
+    } catch (err) {
+      console.error('Error duplicating session:', err);
+      alert('Failed to duplicate session. Please try again.');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (signOut) {
+        await signOut();
+      }
+      logout();
+      navigate('/');
+    } catch (err) {
+      console.error('Error during logout:', err);
+      logout();
+      navigate('/');
+    }
+  };
+
+  const handleSendMessage = async (e, overrideQuery = null) => {
     e?.preventDefault();
-    const trimmed = inputQuery.trim();
+    const trimmed = (overrideQuery !== null ? overrideQuery : inputQuery).trim();
     if (!trimmed || isSending) return;
 
     let targetSessionId = activeSessionId;
 
-    // If user has no active session yet (e.g. first-time empty state), create one first
     if (!targetSessionId) {
       try {
         const createRes = await api.post('/chat/sessions', { username: user });
@@ -361,7 +709,6 @@ export const ChatLayout = () => {
       }
     }
 
-    // Create optimistic user message
     const optimisticUserMsg = {
       id: `temp-${Date.now()}`,
       session_id: targetSessionId,
@@ -379,6 +726,8 @@ export const ChatLayout = () => {
         username: user,
         query: trimmed,
         document_ids: selectedDocIds.length > 0 ? selectedDocIds : null,
+        rag_enabled: ragEnabled,
+        web_search_enabled: webSearchEnabled,
       };
 
       const res = await api.post(`/chat/sessions/${targetSessionId}/message`, payload);
@@ -392,12 +741,13 @@ export const ChatLayout = () => {
         citations: data.citations || [],
         is_fallback: data.is_fallback || false,
         low_context: data.low_context || false,
+        source: data.source || (data.citations?.length ? 'rag' : 'llm_api'),
         created_at: new Date().toISOString(),
+        animateReveal: true,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
 
-      // If current session title was "New Chat", auto-update title in sidebar
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id === targetSessionId && s.title === 'New Chat') {
@@ -428,9 +778,193 @@ export const ChatLayout = () => {
     }
   };
 
-  // ===========================================================================
-  // 8. Handle file upload via "+" button directly in chat input bar
-  // ===========================================================================
+  const handleEditUserMessage = async (messageId) => {
+    const newContent = editingMessageContent.trim();
+    if (!newContent || !activeSessionId || isSending) return;
+    setEditingMessageId(null);
+    setIsSending(true);
+
+    const targetIdx = messages.findIndex((m) => m.id === messageId);
+    if (targetIdx !== -1) {
+      setMessages((prev) => {
+        const truncated = prev.slice(0, targetIdx + 1);
+        truncated[targetIdx] = { ...truncated[targetIdx], content: newContent };
+        return truncated;
+      });
+    }
+
+    try {
+      const res = await api.post(`/chat/sessions/${activeSessionId}/messages/${messageId}/edit`, {
+        query: newContent,
+        rag_enabled: ragEnabled,
+        web_search_enabled: webSearchEnabled,
+      });
+      const data = res.data;
+      const assistantMsg = {
+        id: `resp-${Date.now()}`,
+        session_id: activeSessionId,
+        role: 'assistant',
+        content: data.answer,
+        citations: data.citations || [],
+        is_fallback: data.is_fallback || false,
+        low_context: data.low_context || false,
+        source: data.source || (data.citations?.length ? 'rag' : 'llm_api'),
+        created_at: new Date().toISOString(),
+        animateReveal: true,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      console.error('Error editing message:', err);
+      const errMsg = {
+        id: `err-${Date.now()}`,
+        session_id: activeSessionId,
+        role: 'assistant',
+        content: err.response?.data?.detail || 'Failed to edit message and regenerate answer. Please try again.',
+        is_error: true,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleRegenerateLastAssistantMessage = async () => {
+    if (isSending || !activeSessionId) return;
+    setIsSending(true);
+
+    setMessages((prev) => {
+      const copy = [...prev];
+      const lastAsstIdx = copy.map((m) => m.role).lastIndexOf('assistant');
+      if (lastAsstIdx !== -1) {
+        copy.splice(lastAsstIdx, 1);
+      }
+      return copy;
+    });
+
+    try {
+      const res = await api.post(`/chat/sessions/${activeSessionId}/regenerate`);
+      const data = res.data;
+      const assistantMsg = {
+        id: `resp-${Date.now()}`,
+        session_id: activeSessionId,
+        role: 'assistant',
+        content: data.answer,
+        citations: data.citations || [],
+        is_fallback: data.is_fallback || false,
+        low_context: data.low_context || false,
+        source: data.source || (data.citations?.length ? 'rag' : 'llm_api'),
+        created_at: new Date().toISOString(),
+        animateReveal: true,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      console.error('Error regenerating response:', err);
+      const errMsg = {
+        id: `err-${Date.now()}`,
+        session_id: activeSessionId,
+        role: 'assistant',
+        content: err.response?.data?.detail || 'Failed to regenerate response. Please try again.',
+        is_error: true,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleExportAllConversations = async () => {
+    if (sessions.length === 0) {
+      alert('No conversations to export.');
+      return;
+    }
+    try {
+      const allExportData = [];
+      for (const sess of sessions) {
+        try {
+          const msgRes = await api.get(`/chat/sessions/${sess.id}/messages`);
+          allExportData.push({
+            id: sess.id,
+            title: sess.title,
+            pinned: sess.pinned,
+            created_at: sess.created_at,
+            messages: msgRes.data || [],
+          });
+        } catch (e) {
+          console.warn(`Skipped exporting messages for session ${sess.id}:`, e);
+        }
+      }
+
+      const jsonBlob = new Blob([JSON.stringify(allExportData, null, 2)], {
+        type: 'application/json',
+      });
+      const url = window.URL.createObjectURL(jsonBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `omnirag_all_conversations_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exporting all conversations:', err);
+      alert('Failed to export all conversations. Please try again.');
+    }
+  };
+
+  const handleConfirmClearAllChats = async () => {
+    const trimmed = clearChatsInput.trim().toUpperCase();
+    if (trimmed !== 'CLEAR' && trimmed !== 'DELETE') {
+      return;
+    }
+    setIsClearingChats(true);
+    try {
+      for (const sess of sessions) {
+        try {
+          await api.delete(`/chat/sessions/${sess.id}`);
+        } catch (e) {
+          console.warn(`Error deleting session ${sess.id}:`, e);
+        }
+      }
+      setSessions([]);
+      setActiveSessionId(null);
+      setMessages([]);
+      setClearChatsModalOpen(false);
+      setClearChatsInput('');
+    } catch (err) {
+      console.error('Error clearing all chats:', err);
+      alert('Failed to delete some chats.');
+    } finally {
+      setIsClearingChats(false);
+    }
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (deleteAccountInput.trim() !== 'DELETE') {
+      setDeleteAccountError("Please type 'DELETE' to confirm account deletion.");
+      return;
+    }
+    setIsDeletingAccount(true);
+    setDeleteAccountError('');
+    try {
+      await api.delete('/auth/account');
+      sessionStorage.setItem('account_deleted_notice', 'Your account and data have been permanently deleted.');
+      setDeleteAccountModalOpen(false);
+      setSettingsOpen(false);
+      if (signOut) await signOut();
+      logout();
+      navigate('/');
+    } catch (err) {
+      console.error('Error deleting account:', err);
+      setDeleteAccountError(
+        err.response?.data?.detail || err.response?.data?.message || 'Failed to delete account. Please try again.'
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -438,12 +972,10 @@ export const ChatLayout = () => {
     const eventId = `file-${Date.now()}`;
     const ext = file.name.split('.').pop().toLowerCase();
 
-    // Reset file input value so user can upload again if needed
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
 
-    // Validation: format
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       setInlineEvents((prev) => [
         ...prev,
@@ -456,7 +988,6 @@ export const ChatLayout = () => {
       return;
     }
 
-    // Validation: size
     if (file.size > MAX_FILE_SIZE) {
       setInlineEvents((prev) => [
         ...prev,
@@ -469,7 +1000,6 @@ export const ChatLayout = () => {
       return;
     }
 
-    // Add progress event: "Uploading [filename]..."
     setInlineEvents((prev) => [
       ...prev,
       {
@@ -503,10 +1033,8 @@ export const ChatLayout = () => {
               : ev
           )
         );
-        // Refresh document list so new doc is immediately available in selector
         fetchUserDocuments();
       } else {
-        // Document uploaded but parsing or indexing failed
         setInlineEvents((prev) =>
           prev.map((ev) =>
             ev.id === eventId
@@ -535,7 +1063,6 @@ export const ChatLayout = () => {
     }
   };
 
-  // Document selection helper
   const toggleDocSelection = (docId) => {
     setSelectedDocIds((prev) => {
       if (prev.includes(docId)) {
@@ -557,683 +1084,147 @@ export const ChatLayout = () => {
   const activeSessionObj = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="flex h-screen w-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* ========================================================================= */}
-      {/* 1. LEFT SIDEBAR: Session History & Navigation                             */}
-      {/* ========================================================================= */}
-      {/* Mobile backdrop */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-xs transition-opacity"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+    <div className="flex h-screen chat-surface text-slate-300 font-sans overflow-hidden">
+      {/* 1. LEFT SIDEBAR */}
+      <ChatSidebar
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        sidebarCollapsed={sidebarCollapsed}
+        setSidebarCollapsed={setSidebarCollapsed}
+        shouldReduceMotion={shouldReduceMotion}
+        sessions={sessions}
+        filteredSessions={filteredSessions}
+        loadingSessions={loadingSessions}
+        activeSessionId={activeSessionId}
+        sessionSearch={sessionSearch}
+        setSessionSearch={setSessionSearch}
+        collapsedSearchOpen={collapsedSearchOpen}
+        setCollapsedSearchOpen={setCollapsedSearchOpen}
+        handleCreateNewSession={handleCreateNewSession}
+        handleSelectSession={handleSelectSession}
+        handleTogglePinSession={handleTogglePinSession}
+        handleStartRenameSession={handleStartRenameSession}
+        editingSessionId={editingSessionId}
+        editingTitle={editingTitle}
+        setEditingTitle={setEditingTitle}
+        setEditingSessionId={setEditingSessionId}
+        handleSaveSessionTitle={handleSaveSessionTitle}
+        handleDuplicateSession={handleDuplicateSession}
+        handleExportSession={handleExportSession}
+        handleInitiateDeleteSession={handleInitiateDeleteSession}
+        activeContextMenu={activeContextMenu}
+        setActiveContextMenu={setActiveContextMenu}
+        user={user}
+        loginMethod={loginMethod}
+        setSettingsOpen={setSettingsOpen}
+        handleLogout={handleLogout}
+        navigate={navigate}
+      />
 
-      <aside
-        className={`
-          fixed md:relative z-50 md:z-0 top-0 left-0 h-full w-72 lg:w-80
-          bg-slate-900 border-r border-slate-800/80 flex flex-col shrink-0
-          transition-transform duration-200 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-        `}
-      >
-        {/* Sidebar Header: App Brand */}
-        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
-              <Bot className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="font-bold text-slate-100 text-sm tracking-tight flex items-center gap-1.5">
-                OmniRAG AI
-                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  RAG
-                </span>
-              </h1>
-              <p className="text-[11px] text-slate-400">Contextual Knowledge Chat</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      {/* 2. CENTER & BOTTOM: Active Chat Window & Input (Direct on page background) */}
+      <main className="flex-1 flex flex-col h-full bg-transparent min-w-0 relative overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 h-full bg-transparent overflow-hidden relative">
+          <ChatChatMessageList
+            setSidebarOpen={setSidebarOpen}
+            activeSessionObj={activeSessionObj}
+            activeSessionId={activeSessionId}
+            sessions={sessions}
+            documents={documents}
+            setDocSelectorOpen={setDocSelectorOpen}
+            handleExportSession={handleExportSession}
+            loadingMessages={loadingMessages}
+            messages={messages}
+            inlineEvents={inlineEvents}
+            shouldReduceMotion={shouldReduceMotion}
+            setInputQuery={setInputQuery}
+            editingMessageId={editingMessageId}
+            setEditingMessageId={setEditingMessageId}
+            editingMessageContent={editingMessageContent}
+            setEditingMessageContent={setEditingMessageContent}
+            handleEditUserMessage={handleEditUserMessage}
+            scrollToBottom={scrollToBottom}
+            handleRevealComplete={handleRevealComplete}
+            activeCitation={activeCitation}
+            setActiveCitation={setActiveCitation}
+            isSending={isSending}
+            handleRegenerateLastAssistantMessage={handleRegenerateLastAssistantMessage}
+            messagesEndRef={messagesEndRef}
+          />
 
-        {/* "+ New Chat" Button */}
-        <div className="p-3 border-b border-slate-800/60">
-          <button
-            onClick={handleCreateNewSession}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-medium text-xs sm:text-sm shadow-md shadow-indigo-600/25 transition-all"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>New Chat</span>
-          </button>
-        </div>
-
-        {/* Sessions History List */}
-        <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1 scrollbar-thin scrollbar-thumb-slate-700">
-          <div className="px-2 py-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            <span>Conversations</span>
-            <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">
-              {sessions.length}
-            </span>
-          </div>
-
-          {loadingSessions ? (
-            <div className="p-4 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-              <span>Loading chats...</span>
-            </div>
-          ) : sessions.length === 0 ? (
-            <div className="p-4 text-center text-slate-500 text-xs leading-relaxed">
-              No previous conversations. Click &quot;+ New Chat&quot; or ask a question to start.
-            </div>
-          ) : (
-            sessions.map((sess) => {
-              const isActive = sess.id === activeSessionId;
-              return (
-                <div
-                  key={sess.id}
-                  onClick={() => handleSelectSession(sess.id)}
-                  className={`
-                    group relative flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all
-                    ${
-                      isActive
-                        ? 'bg-slate-800 text-white font-medium shadow-sm border border-slate-700/60'
-                        : 'text-slate-300 hover:bg-slate-800/60 hover:text-white border border-transparent'
-                    }
-                  `}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                    <MessageSquare
-                      className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-400'}`}
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-xs leading-tight">{sess.title || 'New Chat'}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        {formatRelativeTime(sess.created_at)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Delete session icon (visible on hover) */}
-                  <button
-                    onClick={(e) => handleDeleteSession(e, sess.id)}
-                    title="Delete chat session"
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all shrink-0"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Sidebar Footer: User Status summary */}
-        <div className="p-3 border-t border-slate-800/80 bg-slate-900/90 space-y-2">
-          <div className="flex items-center justify-between text-xs px-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-white font-semibold text-xs shrink-0 shadow-xs">
-                {user ? user.charAt(0).toUpperCase() : 'U'}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-medium text-slate-200 leading-none">{user}</p>
-                <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                  {loginMethod === 'face' ? (
-                    <span className="text-emerald-400 flex items-center gap-0.5">
-                      <ScanFace className="w-3 h-3" /> Face Verified
-                    </span>
-                  ) : (
-                    <span>Password Auth</span>
-                  )}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => navigate('/account/add-face')}
-              title="Biometric Face Login Settings"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-indigo-600/20 border border-transparent hover:border-indigo-500/30 transition-all"
-            >
-              <Camera className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 border border-slate-800 hover:border-rose-500/30 transition-all"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* ========================================================================= */}
-      {/* 2. CENTER & BOTTOM: Active Chat Window & Input                            */}
-      {/* ========================================================================= */}
-      <main className="flex-1 flex flex-col h-full bg-slate-950 min-w-0 relative">
-        {/* Top Header Bar */}
-        <header className="h-14 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-20">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-sm text-slate-200 truncate">
-                {activeSessionObj?.title || (sessions.length > 0 ? 'OmniRAG Chat' : 'New Conversation')}
-              </h2>
-              <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-                <span>{documents.length} document{documents.length === 1 ? '' : 's'} in knowledge base</span>
-              </p>
-            </div>
-          </div>
-
-          {/* User Menu in Top-Right Corner (Task 4) */}
-          <div className="relative" ref={userMenuRef}>
-            <button
-              type="button"
-              onClick={() => setUserMenuOpen((prev) => !prev)}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-xs font-medium text-slate-200 transition-all cursor-pointer shadow-xs focus:outline-none"
-            >
-              {/* Avatar Initial Circle */}
-              <div className="relative w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-white font-bold text-xs shadow-xs">
-                {user ? user.charAt(0).toUpperCase() : 'U'}
-                {loginMethod === 'face' && (
-                  <span
-                    title="Logged in via Face Recognition"
-                    className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900"
-                  />
-                )}
-              </div>
-              <span className="hidden sm:inline truncate max-w-[120px]">{user}</span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
-                  userMenuOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            {/* Dropdown Menu */}
-            {userMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl py-1.5 z-50 text-xs">
-                {/* User info summary */}
-                <div className="px-3.5 py-2.5 border-b border-slate-800/80">
-                  <p className="font-semibold text-slate-100 truncate">{user}</p>
-                  <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                    {loginMethod === 'face' ? (
-                      <>
-                        <ScanFace className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400 font-medium">Face ID Verified</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Password Verified</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {/* Dropdown items */}
-                <div className="py-1">
-                  <button
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      navigate('/account/add-face');
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors text-left"
-                  >
-                    <Camera className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <span>Add / Update Face</span>
-                  </button>
-
-                  <div className="border-t border-slate-800/60 my-1"></div>
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
-                  >
-                    <LogOut className="w-4 h-4 shrink-0" />
-                    <span>Log Out</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </header>
-
-        {/* Personalized Welcome Element at Top of Chat Area (Task 3) */}
-        {showWelcomeBanner && (
-          <div className="mx-4 mt-3 mb-1 sm:mx-6 p-3 rounded-xl bg-slate-900/95 border border-indigo-500/25 shadow-md flex items-center justify-between gap-3 text-xs shrink-0 transition-all">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="w-6 h-6 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5" />
-              </div>
-              <span className="font-semibold text-slate-100 text-xs sm:text-sm">
-                {sessions.length > 0
-                  ? `Welcome back, ${user}`
-                  : `Welcome, ${user} — let's get started`}
-              </span>
-
-              {/* Biometric acknowledgement badge if signed in via face */}
-              {loginMethod === 'face' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-xs">
-                  <ScanFace className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Face Recognition Verified</span>
-                </span>
-              )}
-              {loginMethod === 'password' && (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
-                  <ShieldCheck className="w-3 h-3 text-indigo-400" />
-                  <span>Password Verified</span>
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => setShowWelcomeBanner(false)}
-              title="Dismiss banner"
-              className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Scrollable Chat Message History */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 scrollbar-thin scrollbar-thumb-slate-800">
-          {loadingMessages ? (
-            <div className="h-full flex items-center justify-center text-slate-500 text-xs gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-              <span>Loading messages...</span>
-            </div>
-          ) : activeSessionId === null || sessions.length === 0 ? (
-            /* Clean "Start your first chat" Empty State (Task 2) */
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto p-6 space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
-                <Sparkles className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">Start your first chat</h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Welcome, <strong className="text-slate-200">{user}</strong>! You don&apos;t have any active conversations yet. Ask a question below or upload documents to start your personal knowledge base.
-                </p>
-              </div>
-
-              <button
-                onClick={handleCreateNewSession}
-                className="inline-flex items-center gap-2 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-medium text-xs shadow-md shadow-indigo-600/25 transition-all"
-              >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Create New Chat</span>
-              </button>
-
-              {documents.length > 0 && (
-                <div className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-left mt-2">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Your Indexed Documents ({documents.length}):
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {documents.slice(0, 4).map((doc) => (
-                      <span
-                        key={doc.id}
-                        className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300"
-                      >
-                        <FileText className="w-3 h-3 text-indigo-400" />
-                        <span className="truncate max-w-[140px]">{doc.original_filename}</span>
-                      </span>
-                    ))}
-                    {documents.length > 4 && (
-                      <span className="text-[11px] text-slate-500 self-center">
-                        +{documents.length - 4} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : messages.length === 0 && inlineEvents.length === 0 ? (
-            /* Active session is empty (waiting for first message) */
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto p-6 space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
-                <Bot className="w-7 h-7" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">OmniRAG AI Knowledge Assistant</h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Ask questions grounded in your uploaded documents. Use the <strong className="text-slate-300">+</strong> button in the input bar to upload new documents directly into your chat knowledge base.
-                </p>
-              </div>
-
-              {documents.length > 0 ? (
-                <div className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-left">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Available Documents ({documents.length}):
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {documents.slice(0, 4).map((doc) => (
-                      <span
-                        key={doc.id}
-                        className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300"
-                      >
-                        <FileText className="w-3 h-3 text-indigo-400" />
-                        <span className="truncate max-w-[140px]">{doc.original_filename}</span>
-                      </span>
-                    ))}
-                    {documents.length > 4 && (
-                      <span className="text-[11px] text-slate-500 self-center">
-                        +{documents.length - 4} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center gap-2 text-left">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
-                  <span>No documents indexed yet. Click the <strong>+</strong> button below to upload a PDF, DOCX, TXT, or CSV file.</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            /* Render Message History */
-            <>
-              {messages.map((msg) => {
-                const isUser = msg.role === 'user';
-                const isError = msg.is_error;
-                const isFallback = msg.is_fallback && !isError;
-
-                if (isUser) {
-                  return (
-                    <div key={msg.id} className="flex justify-end items-end gap-2">
-                      <div className="max-w-2xl bg-indigo-600 text-white rounded-2xl rounded-br-xs px-4 py-3 text-xs sm:text-sm shadow-sm leading-relaxed whitespace-pre-wrap">
-                        {msg.content}
-                      </div>
-                      <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 text-[10px]">
-                        <User className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Assistant Message
-                return (
-                  <div key={msg.id} className="flex justify-start items-start gap-3">
-                    <div
-                      className={`
-                        w-7 h-7 rounded-xl flex items-center justify-center shrink-0 mt-0.5 shadow-sm
-                        ${
-                          isError
-                            ? 'bg-rose-950/50 border border-rose-500/40 text-rose-400'
-                            : isFallback
-                            ? 'bg-amber-950/50 border border-amber-500/40 text-amber-400'
-                            : 'bg-indigo-600/20 border border-indigo-500/40 text-indigo-400'
-                        }
-                      `}
-                    >
-                      {isError ? <AlertCircle className="w-4 h-4" /> : isFallback ? <SearchX className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                    </div>
-
-                    <div
-                      className={`
-                        max-w-3xl rounded-2xl rounded-tl-xs p-4 text-xs sm:text-sm shadow-sm leading-relaxed
-                        ${
-                          isError
-                            ? 'bg-slate-900/90 border border-rose-500/30 text-rose-200'
-                            : isFallback
-                            ? 'bg-slate-900/90 border border-amber-500/30 text-slate-300'
-                            : 'bg-slate-900/90 border border-slate-800 text-slate-200'
-                        }
-                      `}
-                    >
-                      {/* Connection / Service Error badge */}
-                      {isError && (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 border border-rose-500/25 text-rose-400 mb-2">
-                          <AlertCircle className="w-3 h-3" />
-                          <span>Connection Error</span>
-                        </div>
-                      )}
-
-                      {/* Fallback distinct badge */}
-                      {isFallback && (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 border border-amber-500/25 text-amber-400 mb-2">
-                          <SearchX className="w-3 h-3" />
-                          <span>Information Not Found in Context</span>
-                        </div>
-                      )}
-
-                      {/* User messages stay plain text; assistant answers are trusted markdown from our formatter. */}
-                      <ReactMarkdown
-                        components={{
-                          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-                          ul: ({ children }) => <ul className="my-3 list-disc space-y-2 pl-5">{children}</ul>,
-                          ol: ({ children }) => <ol className="my-3 list-decimal space-y-2 pl-5">{children}</ol>,
-                          li: ({ children }) => <li className="pl-1">{children}</li>,
-                          strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
-
-                      {/* Source Citations Badges */}
-                      {!isFallback && msg.citations && msg.citations.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-1.5">
-                          <p className="text-[10px] uppercase font-bold tracking-wider text-indigo-400 flex items-center gap-1">
-                            <span>Sources &amp; Citations</span>
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {msg.citations.map((c, i) => {
-                              const chunks = c.chunk_references || [];
-                              const chunkStr = chunks.length > 0 ? ` (chunk${chunks.length > 1 ? 's' : ''} ${chunks.join(', ')})` : '';
-                              return (
-                                <span
-                                  key={i}
-                                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] bg-slate-800 border border-indigo-500/30 text-indigo-300 font-medium"
-                                >
-                                  <FileText className="w-3 h-3 text-indigo-400 shrink-0" />
-                                  <span className="truncate max-w-[180px]">{c.filename}</span>
-                                  <span className="text-[10px] text-indigo-400/80">{chunkStr}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Low-Context Indicator Badge */}
-                      {!isFallback && msg.low_context && (
-                        <div className="mt-2.5">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-400/90 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
-                            <AlertTriangle className="w-3 h-3 text-amber-400" />
-                            <span>Limited context: Answer synthesized from fewer source chunks.</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Inline System Notifications for uploads */}
-              {inlineEvents.map((ev) => (
-                <div key={ev.id} className="flex justify-center my-2">
-                  <div
-                    className={`
-                      inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium shadow-sm transition-all
-                      ${
-                        ev.status === 'uploading'
-                          ? 'bg-slate-800/95 border border-indigo-500/40 text-indigo-300'
-                          : ev.status === 'success'
-                          ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
-                          : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'
-                      }
-                    `}
-                  >
-                    {ev.status === 'uploading' && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />}
-                    {ev.status === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                    {ev.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
-                    <span>{ev.text}</span>
-                  </div>
-                </div>
-              ))}
-
-              {/* Sending / Thinking loading state */}
-              {isSending && (
-                <div className="flex justify-start items-start gap-3">
-                  <div className="w-7 h-7 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-sm shrink-0">
-                    <Bot className="w-4 h-4" />
-                  </div>
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-2xl rounded-tl-xs px-4 py-3 text-xs text-slate-400 flex items-center gap-2 shadow-sm">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                    <span>Searching vector knowledge base &amp; formulating response...</span>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* ======================================================================= */}
-        {/* 3. BOTTOM: Document Selector & Input Bar                                */}
-        {/* ======================================================================= */}
-        <div className="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800/80 backdrop-blur-md shrink-0 space-y-2">
-          {/* Document Scope Selector Button & Popover */}
-          <div className="relative inline-block" ref={docSelectorRef}>
-            <button
-              type="button"
-              onClick={() => setDocSelectorOpen((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 transition-all shadow-xs"
-            >
-              <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span>
-                {selectedDocIds.length === 0
-                  ? `All Documents (${documents.length})`
-                  : `${selectedDocIds.length} of ${documents.length} docs selected`}
-              </span>
-              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${docSelectorOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Document Selector Dropdown Menu */}
-            {docSelectorOpen && (
-              <div className="absolute bottom-full mb-2 left-0 z-30 w-72 sm:w-80 bg-slate-900 border border-slate-700/90 rounded-xl shadow-2xl p-2.5 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Query Retrieval Scope
-                  </span>
-                  <button
-                    onClick={handleSelectAllDocs}
-                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium"
-                  >
-                    {selectedDocIds.length === 0 ? 'Select Specific' : 'Query All'}
-                  </button>
-                </div>
-
-                {documents.length === 0 ? (
-                  <div className="p-2 text-center text-xs text-slate-500">
-                    No indexed documents found. Upload a file using the + button.
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {/* All Documents Option */}
-                    <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={selectedDocIds.length === 0}
-                        onChange={handleSelectAllDocs}
-                        className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-slate-800"
-                      />
-                      <span className="font-semibold text-slate-100">All Documents</span>
-                      <span className="ml-auto text-[10px] text-slate-500">({documents.length})</span>
-                    </label>
-
-                    <div className="border-t border-slate-800/60 my-1"></div>
-
-                    {/* Individual Documents */}
-                    {documents.map((doc) => {
-                      const isSelected = selectedDocIds.includes(doc.id);
-                      return (
-                        <label
-                          key={doc.id}
-                          className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer text-xs text-slate-300"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleDocSelection(doc.id)}
-                            className="rounded border-slate-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-slate-800"
-                          />
-                          <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                          <span className="truncate flex-1" title={doc.original_filename}>
-                            {doc.original_filename}
-                          </span>
-                          <span className="text-[10px] text-slate-500 shrink-0">
-                            {doc.chunk_count ? `${doc.chunk_count} ch` : doc.file_type}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Chat Input Bar */}
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            {/* Hidden File Picker restricted to .pdf,.docx,.txt,.csv */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              accept=".pdf,.docx,.txt,.csv"
-              className="hidden"
-            />
-
-            <div className="flex-1 flex items-center gap-2 bg-slate-900/80 border border-slate-700/80 rounded-2xl px-2 py-1.5 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all">
-              {/* "+" Upload Button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload document (.pdf, .docx, .txt, .csv, max 50MB)"
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700/60 transition-all shrink-0 active:scale-95"
-              >
-                <Plus className="w-5 h-5 stroke-[2.5]" />
-              </button>
-
-              {/* Query Text Field */}
-              <input
-                type="text"
-                value={inputQuery}
-                onChange={(e) => setInputQuery(e.target.value)}
-                placeholder={
-                  documents.length === 0
-                    ? 'Ask a question or upload a document using + ...'
-                    : 'Ask a question about your uploaded documents...'
-                }
-                disabled={isSending}
-                className="w-full bg-transparent text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none py-1.5"
-              />
-
-              {/* Send Button */}
-              <button
-                type="submit"
-                disabled={!inputQuery.trim() || isSending}
-                title="Send query"
-                className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white transition-all shadow-sm shrink-0 active:scale-95"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          </form>
+          <ChatInputBar
+            docSelectorRef={docSelectorRef}
+            shouldReduceMotion={shouldReduceMotion}
+            docSelectorOpen={docSelectorOpen}
+            setDocSelectorOpen={setDocSelectorOpen}
+            setShowUploadMenu={setShowUploadMenu}
+            selectedDocIds={selectedDocIds}
+            documents={documents}
+            handleSelectAllDocs={handleSelectAllDocs}
+            docSearchQuery={docSearchQuery}
+            setDocSearchQuery={setDocSearchQuery}
+            filteredScopeDocuments={filteredScopeDocuments}
+            toggleDocSelection={toggleDocSelection}
+            handleSendMessage={handleSendMessage}
+            fileInputRef={fileInputRef}
+            handleFileSelect={handleFileSelect}
+            inputQuery={inputQuery}
+            setInputQuery={setInputQuery}
+            isSending={isSending}
+            uploadMenuRef={uploadMenuRef}
+            showUploadMenu={showUploadMenu}
+            uploadMenuItems={uploadMenuItems}
+            ragEnabled={ragEnabled}
+            setRagEnabled={setRagEnabled}
+            webSearchEnabled={webSearchEnabled}
+            setWebSearchEnabled={setWebSearchEnabled}
+            isRecording={isRecording}
+            cancelVoiceRecording={cancelVoiceRecording}
+            isTranscribing={isTranscribing}
+            toggleVoiceRecording={toggleVoiceRecording}
+            analyserRef={analyserRef}
+            audioLevels={audioLevels}
+            isUndoDeleting={isUndoDeleting}
+            undoSessionData={undoSessionData}
+            handleUndoDelete={handleUndoDelete}
+          />
         </div>
       </main>
+
+      {/* 3. SETTINGS & ACCOUNT MODALS */}
+      <ChatSettingsModal
+        settingsOpen={settingsOpen}
+        setSettingsOpen={setSettingsOpen}
+        shouldReduceMotion={shouldReduceMotion}
+        settingsTab={settingsTab}
+        setSettingsTab={setSettingsTab}
+        manualReduceMotion={manualReduceMotion}
+        toggleManualReduceMotion={toggleManualReduceMotion}
+        osReducedMotion={osReducedMotion}
+        defaultRagEnabled={defaultRagEnabled}
+        updateDefaultRag={updateDefaultRag}
+        defaultWebSearchEnabled={defaultWebSearchEnabled}
+        updateDefaultWeb={updateDefaultWeb}
+        handleExportAllConversations={handleExportAllConversations}
+        setClearChatsInput={setClearChatsInput}
+        setClearChatsModalOpen={setClearChatsModalOpen}
+        user={user}
+        clerkUser={clerkUser}
+        loginMethod={loginMethod}
+        navigate={navigate}
+        setDeleteAccountInput={setDeleteAccountInput}
+        setDeleteAccountError={setDeleteAccountError}
+        setDeleteAccountModalOpen={setDeleteAccountModalOpen}
+        deleteAccountModalOpen={deleteAccountModalOpen}
+        isDeletingAccount={isDeletingAccount}
+        deleteAccountInput={deleteAccountInput}
+        deleteAccountError={deleteAccountError}
+        handleConfirmDeleteAccount={handleConfirmDeleteAccount}
+        clearChatsModalOpen={clearChatsModalOpen}
+        isClearingChats={isClearingChats}
+        clearChatsInput={clearChatsInput}
+        sessions={sessions}
+        handleConfirmClearAllChats={handleConfirmClearAllChats}
+      />
     </div>
   );
 };

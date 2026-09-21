@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, AlertCircle, Loader2, CheckCircle2, Users, EyeOff } from 'lucide-react';
+import { m, AnimatePresence, useReducedMotion } from 'motion/react';
 import {
   loadFaceModels,
   extractFaceDescriptorFromVideo,
@@ -29,6 +30,7 @@ export const FaceCapture = ({
 }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const shouldReduceMotion = useReducedMotion();
 
   const [loadingModels, setLoadingModels] = useState(true);
   const [modelError, setModelError] = useState('');
@@ -36,6 +38,7 @@ export const FaceCapture = ({
   const [detectionError, setDetectionError] = useState('');
   const [isCapturing, setIsCapturing] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraRetryKey, setCameraRetryKey] = useState(0);
 
   // Real-time detection state: 'scanning' | 'no_face' | 'face_detected' | 'multiple_faces'
   const [detectionState, setDetectionState] = useState('scanning');
@@ -66,17 +69,27 @@ export const FaceCapture = ({
       if (!isMounted) return;
       setLoadingModels(false);
 
-      // Request Webcam Stream
+      // Request webcam stream. A minimal fallback helps browsers that reject
+      // ideal resolution/facingMode constraints while the camera is available.
       try {
         setCameraError('');
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: 'user',
-          },
-          audio: false,
-        });
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: 'user',
+            },
+            audio: false,
+          });
+        } catch (firstError) {
+          if (firstError.name === 'NotReadableError' || firstError.name === 'OverconstrainedError') {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } else {
+            throw firstError;
+          }
+        }
 
         if (!isMounted) {
           stream.getTracks().forEach((track) => track.stop());
@@ -102,6 +115,8 @@ export const FaceCapture = ({
           );
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
           setCameraError('No camera found on your device. Please connect a webcam.');
+        } else if (err.name === 'NotReadableError') {
+          setCameraError('The camera is busy or unavailable. Close other camera apps or browser tabs, then click Try Camera Again.');
         } else {
           setCameraError('Unable to access camera: ' + (err.message || 'Unknown error'));
         }
@@ -118,7 +133,7 @@ export const FaceCapture = ({
         streamRef.current = null;
       }
     };
-  }, []);
+  }, [cameraRetryKey]);
 
   // ---------------------------------------------------------------------------
   // 2. Continuous real-time face detection loop (every 350ms)
@@ -295,6 +310,13 @@ export const FaceCapture = ({
           <div>
             <p className="font-semibold">Webcam Not Available</p>
             <p className="text-xs text-rose-300/90 mt-1">{cameraError}</p>
+            <button
+              type="button"
+              onClick={() => setCameraRetryKey((key) => key + 1)}
+              className="mt-3 rounded-lg border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-500/10"
+            >
+              Try Camera Again
+            </button>
           </div>
         </div>
       )}
@@ -309,8 +331,21 @@ export const FaceCapture = ({
 
       {/* Live Video Preview Box */}
       {!loadingModels && !modelError && !cameraError && (
-        <div className="w-full max-w-sm flex flex-col items-center">
-          <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-700/80 shadow-inner flex items-center justify-center mb-3">
+        <m.div
+          initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+          className="w-full max-w-sm flex flex-col items-center"
+        >
+          <m.div 
+            animate={
+              detectionError 
+                ? (shouldReduceMotion ? { x: [-5, 5, -5, 5, 0] } : { x: [-10, 10, -10, 10, 0] })
+                : {}
+            }
+            transition={{ duration: 0.4 }}
+            className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-700/80 shadow-inner flex items-center justify-center mb-3"
+          >
             <video
               ref={videoRef}
               playsInline
@@ -320,10 +355,60 @@ export const FaceCapture = ({
 
             {/* Dynamic oval face guide overlay reflecting real-time detection state */}
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+              {(isCapturing || isProcessing) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] z-20">
+                  {/* Glowing pulsing rings */}
+                  <m.div
+                    initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.92, opacity: 0.4 }}
+                    animate={
+                      shouldReduceMotion
+                        ? { opacity: 1 }
+                        : {
+                            scale: [0.92, 1.1, 0.92],
+                            opacity: [0.4, 0.9, 0.4],
+                          }
+                    }
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : { repeat: Infinity, duration: 1.4, ease: 'easeInOut' }
+                    }
+                    className="absolute w-44 h-56 rounded-[50%] border-4 border-violet-500 shadow-[0_0_30px_rgba(139,92,246,0.7)]"
+                  />
+                  <m.div
+                    initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.86, opacity: 0.25 }}
+                    animate={
+                      shouldReduceMotion
+                        ? { opacity: 1 }
+                        : {
+                            scale: [0.86, 1.16, 0.86],
+                            opacity: [0.25, 0.7, 0.25],
+                          }
+                    }
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : { repeat: Infinity, duration: 1.8, ease: 'easeInOut', delay: 0.15 }
+                    }
+                    className="absolute w-44 h-56 rounded-[50%] border-2 border-fuchsia-400 shadow-[0_0_20px_rgba(217,70,239,0.5)]"
+                  />
+                  <m.div
+                    initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.85, y: 8 }}
+                    animate={{ scale: 1, y: 0 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 350, damping: 24 }}
+                    className="glass-panel px-4 py-2 rounded-full border border-violet-400/50 text-white text-xs font-semibold flex items-center gap-2 shadow-2xl bg-violet-950/80 z-30"
+                  >
+                    <Loader2 className="w-3.5 h-3.5 text-fuchsia-400 animate-spin" />
+                    <span>Verifying biometrics...</span>
+                  </m.div>
+                </div>
+              )}
               <div
-                className={`w-44 h-56 rounded-[50%] border-2 border-dashed transition-all duration-300 flex items-center justify-center ${indicator.ovalClass}`}
+                className={`w-44 h-56 rounded-[50%] border-2 border-dashed transition-all duration-500 flex items-center justify-center ${
+                  (isCapturing || isProcessing) ? 'border-violet-400 shadow-[0_0_20px_rgba(139,92,246,0.5)]' : indicator.ovalClass
+                }`}
               >
-                <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-200 bg-slate-900/80 backdrop-blur-sm px-2.5 py-0.5 rounded-full border border-slate-700/60 shadow">
+                <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-200 bg-slate-900/80 backdrop-blur-sm px-2.5 py-0.5 rounded-full border border-slate-700/60 shadow transition-opacity duration-300" style={{ opacity: (isCapturing || isProcessing) ? 0 : 1 }}>
                   Position Face
                 </span>
               </div>
@@ -334,16 +419,29 @@ export const FaceCapture = ({
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Live
             </div>
-          </div>
+          </m.div>
 
-          {/* Real-time Detection Status Indicator */}
-          <div
-            className={`w-full mb-4 px-3 py-2 rounded-xl border flex items-center justify-center gap-2 text-xs font-medium text-center transition-colors duration-200 ${indicator.badgeClass}`}
+          {/* Real-time Detection Status Indicator with smooth color/label transition */}
+          <m.div
+            layout
+            className={`w-full mb-4 px-3 py-2 rounded-xl border flex items-center justify-center gap-2 text-xs font-medium text-center transition-all duration-500 ${indicator.badgeClass}`}
           >
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${indicator.dotClass}`}></span>
-            <span className="truncate">{indicator.text}</span>
-          </div>
-        </div>
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 transition-colors duration-500 ${indicator.dotClass}`}></span>
+            <AnimatePresence mode="wait">
+              <m.div
+                key={indicator.text}
+                initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 4 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: 'easeInOut' }}
+                className="flex items-center gap-1.5 truncate"
+              >
+                {indicator.icon}
+                <span>{indicator.text}</span>
+              </m.div>
+            </AnimatePresence>
+          </m.div>
+        </m.div>
       )}
 
       {/* Capture Action Button */}
@@ -352,12 +450,12 @@ export const FaceCapture = ({
           type="button"
           onClick={handleCapture}
           disabled={!canCapture}
-          className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 active:scale-[0.99] text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-violet-400 cursor-pointer"
         >
           {isCapturing || isProcessing ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Analyzing Face Biometrics...</span>
+              <span>Verifying biometrics...</span>
             </>
           ) : (
             <>

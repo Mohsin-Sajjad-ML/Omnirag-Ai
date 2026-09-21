@@ -116,8 +116,8 @@ export const Register = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-slate-800/80 backdrop-blur-xl border border-slate-700/60 rounded-3xl p-8 shadow-2xl shadow-slate-950/50">
+    <div className="auth-page min-h-screen flex items-center justify-center p-4">
+      <div className="auth-card w-full max-w-md glass-panel rounded-3xl p-8 shadow-2xl shadow-slate-950/50">
         <Link
           to="/"
           className="inline-flex items-center text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors mb-4"

@@ -115,7 +115,7 @@ export async function extractFaceDescriptorFromVideo(videoElement) {
   // inputSize: 320 provides good balance of inference speed and accuracy in browser
   const detectorOptions = new faceapi.TinyFaceDetectorOptions({
     inputSize: 320,
-    scoreThreshold: 0.5,
+    scoreThreshold: 0.38,
   });
 
   const detections = await faceapi
@@ -160,7 +160,7 @@ export async function countFacesInVideo(videoElement) {
   try {
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({
       inputSize: 224,
-      scoreThreshold: 0.5,
+      scoreThreshold: 0.35,
     });
 
     const detections = await faceapi.detectAllFaces(videoElement, detectorOptions);

@@ -2,7 +2,574 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+  --omni-bg: #07070d;
+  --omni-panel: rgba(18, 16, 31, 0.65);
+  --omni-panel-raised: rgba(28, 24, 48, 0.75);
+  --omni-border: rgba(168, 85, 247, 0.16);
+  --omni-border-strong: rgba(217, 70, 239, 0.35);
+  --omni-text: #f3f4f6;
+  --omni-muted: #94a3b8;
+  --omni-indigo: #8b5cf6;
+  --omni-fuchsia: #d946ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
-  font-family: 'Inter', sans-serif;
-  background-color: #0f172a;
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', 'Avenir Next', 'Segoe UI', sans-serif;
+  background-color: #07070d;
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(139, 92, 246, 0.38), transparent 45%),
+    radial-gradient(circle at 82% 24%, rgba(217, 70, 239, 0.32), transparent 45%),
+    radial-gradient(circle at 50% 85%, rgba(6, 182, 212, 0.22), transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(124, 58, 237, 0.26), transparent 42%);
+  background-attachment: fixed;
+  color: var(--omni-text);
+  overflow-x: hidden;
+}
+
+/* Starry particles backdrop */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: 
+    radial-gradient(1.5px 1.5px at 30px 40px, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1.5px 1.5px at 160px 190px, rgba(168, 85, 247, 0.4), transparent),
+    radial-gradient(1px 1px at 320px 140px, rgba(217, 70, 239, 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 480px 310px, rgba(6, 182, 212, 0.35), transparent),
+    radial-gradient(1px 1px at 640px 220px, rgba(255, 255, 255, 0.25), transparent);
+  background-repeat: repeat;
+  background-size: 550px 550px;
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Floating animated aurora nebula */
+body::after {
+  content: '';
+  position: fixed;
+  top: -25%;
+  left: -15%;
+  width: 130vw;
+  height: 130vh;
+  border-radius: 50%;
+  background: 
+    radial-gradient(circle at 25% 25%, rgba(217, 70, 239, 0.18) 0%, rgba(139, 92, 246, 0.14) 35%, transparent 65%),
+    radial-gradient(circle at 75% 65%, rgba(6, 182, 212, 0.14) 0%, rgba(124, 58, 237, 0.12) 40%, transparent 65%);
+  filter: blur(85px);
+  pointer-events: none;
+  z-index: 0;
+  animation: cosmic-nebula-float 24s ease-in-out infinite alternate;
+}
+
+@keyframes cosmic-nebula-float {
+  0% {
+    transform: scale(1) translate(0px, 0px) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.08) translate(-30px, 20px) rotate(3deg);
+  }
+  100% {
+    transform: scale(0.96) translate(25px, -15px) rotate(-2deg);
+  }
+}
+
+.glass-panel {
+  background: rgba(18, 16, 31, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(129, 140, 248, 0.35);
+  color: #fff;
+}
+
+.auth-page {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+/* High-tech animated cyber grid with radial mask */
+.auth-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(139, 92, 246, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 92, 246, 0.09) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.9) 25%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.9) 25%, transparent 75%);
+  pointer-events: none;
+}
+
+.auth-card {
+  animation: surface-enter 220ms ease-out both;
+  background: rgba(18, 16, 31, 0.76) !important;
+  backdrop-filter: blur(28px) !important;
+  -webkit-backdrop-filter: blur(28px) !important;
+  border: 1px solid rgba(168, 85, 247, 0.28) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 50px -10px rgba(139, 92, 246, 0.3) !important;
+}
+
+/* Clerk Component Glass Theme Overrides */
+.cl-card,
+.cl-signIn-root .cl-card,
+.cl-signUp-root .cl-card {
+  background: rgba(18, 16, 31, 0.78) !important;
+  backdrop-filter: blur(28px) !important;
+  -webkit-backdrop-filter: blur(28px) !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.32) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 55px -10px rgba(139, 92, 246, 0.35) !important;
+  border-radius: 1.75rem !important;
+}
+
+.cl-headerTitle {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+}
+
+.cl-headerSubtitle,
+.cl-footerActionText {
+  color: #94a3b8 !important;
+}
+
+.cl-formButtonPrimary {
+  background: linear-gradient(135deg, #8b5cf6, #d946ef) !important;
+  border-radius: 0.85rem !important;
+  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.4) !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease !important;
+}
+
+.cl-formButtonPrimary:hover {
+  box-shadow: 0 6px 24px rgba(217, 70, 239, 0.55) !important;
+  filter: brightness(1.08) !important;
+}
+
+.cl-formFieldInput {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 0.75rem !important;
+  color: #f3f4f6 !important;
+}
+
+.cl-formFieldInput:focus {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35) !important;
+}
+
+.cl-footerActionLink {
+  color: #c084fc !important;
+  font-weight: 600 !important;
+}
+
+.cl-footerActionLink:hover {
+  color: #e879f9 !important;
+}
+
+/* ==========================================================================
+   CLERK DIGIT / OTP VERIFICATION BLOCKS (Vivid Glow & Visible Edges)
+   ========================================================================== */
+.cl-otpCodeField,
+.cl-otpCodeFieldInputs {
+  display: flex !important;
+  gap: 0.5rem !important;
+  justify-content: center !important;
+}
+
+.cl-otpCodeFieldInput,
+.cl-otpCodeField input,
+.cl-otpCodeFieldInputs input,
+.cl-card input[maxlength="1"],
+.cl-card input[inputmode="numeric"],
+input[data-otp-input],
+.cl-formFieldInput[data-variant="otp"] {
+  background: rgba(28, 22, 50, 0.88) !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.55) !important;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.35), inset 0 0 10px rgba(139, 92, 246, 0.18) !important;
+  color: #ffffff !important;
+  border-radius: 0.85rem !important;
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  width: 3rem !important;
+  height: 3.35rem !important;
+}
+
+.cl-otpCodeFieldInput:hover,
+.cl-otpCodeField input:hover,
+.cl-otpCodeFieldInputs input:hover,
+.cl-card input[maxlength="1"]:hover,
+.cl-card input[inputmode="numeric"]:hover {
+  border-color: rgba(217, 70, 239, 0.85) !important;
+  box-shadow: 0 0 22px rgba(217, 70, 239, 0.55), inset 0 0 12px rgba(217, 70, 239, 0.22) !important;
+  background: rgba(38, 28, 68, 0.95) !important;
+}
+
+.cl-otpCodeFieldInput:focus,
+.cl-otpCodeFieldInput[data-status="focused"],
+.cl-otpCodeField input:focus,
+.cl-otpCodeFieldInputs input:focus,
+.cl-card input[maxlength="1"]:focus,
+.cl-card input[inputmode="numeric"]:focus {
+  border-color: #d946ef !important;
+  box-shadow: 0 0 26px rgba(217, 70, 239, 0.85), 0 0 8px #8b5cf6, inset 0 0 14px rgba(217, 70, 239, 0.3) !important;
+  outline: none !important;
+  transform: scale(1.06) !important;
+  background: rgba(45, 32, 80, 1) !important;
+}
+
+.cl-formResendCodeLink {
+  color: #c084fc !important;
+  font-weight: 600 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+}
+
+.cl-formResendCodeLink:hover {
+  color: #f0abfc !important;
+}
+
+.cl-alert,
+.cl-alertText,
+.cl-formFeedback {
+  background: rgba(217, 70, 239, 0.1) !important;
+  border: 1px solid rgba(217, 70, 239, 0.35) !important;
+  border-radius: 0.85rem !important;
+  color: #fce7f3 !important;
+}
+
+/* ==========================================================================
+   CLERK SOCIAL LOGIN BUTTONS (GitHub, Google, LinkedIn)
+   ========================================================================== */
+.cl-socialButtons,
+.cl-socialButtonsRoot {
+  display: flex !important;
+  gap: 0.75rem !important;
+  justify-content: center !important;
+}
+
+.cl-socialButtonsBlockButton,
+.cl-socialButtonsIconButton,
+.cl-socialButtons button,
+button[data-provider] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.35) !important;
+  border-radius: 0.85rem !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 14px rgba(139, 92, 246, 0.18) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  padding: 0.65rem 1rem !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.cl-socialButtonsBlockButton:hover,
+.cl-socialButtonsIconButton:hover,
+.cl-socialButtons button:hover,
+button[data-provider]:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(217, 70, 239, 0.7) !important;
+  box-shadow: 0 0 22px rgba(168, 85, 247, 0.5), 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+  transform: translateY(-2px) !important;
+}
+
+.cl-socialButtonsBlockButton:active,
+.cl-socialButtonsIconButton:active,
+.cl-socialButtons button:active,
+button[data-provider]:active {
+  transform: translateY(0) scale(0.98) !important;
+}
+
+.cl-socialButtonsProviderIcon,
+.cl-socialButtonsBlockButton img,
+.cl-socialButtonsBlockButton svg,
+.cl-socialButtonsIconButton img,
+.cl-socialButtonsIconButton svg,
+button[data-provider] img,
+button[data-provider] svg {
+  width: 1.35rem !important;
+  height: 1.35rem !important;
+  display: block !important;
+  opacity: 1 !important;
+  transition: transform 0.2s ease, filter 0.2s ease !important;
+}
+
+/* GitHub: stark white with clean glow */
+.cl-socialButtonsBlockButton__github img,
+.cl-socialButtonsBlockButton__github svg,
+.cl-socialButtonsIconButton__github img,
+.cl-socialButtonsIconButton__github svg,
+.cl-socialButtonsBlockButton__oauth_github img,
+.cl-socialButtonsBlockButton__oauth_github svg,
+.cl-socialButtonsIconButton__oauth_github img,
+.cl-socialButtonsIconButton__oauth_github svg,
+button[data-provider="github"] img,
+button[data-provider="github"] svg,
+button[data-provider="oauth_github"] img,
+button[data-provider="oauth_github"] svg,
+img[alt*="github" i],
+img[alt*="GitHub" i],
+svg[aria-label*="github" i],
+svg[aria-label*="GitHub" i] {
+  filter: brightness(0) invert(1) drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)) !important;
+}
+
+/* Google: vibrant colors with crisp contrast halo */
+.cl-socialButtonsBlockButton__google img,
+.cl-socialButtonsBlockButton__google svg,
+.cl-socialButtonsIconButton__google img,
+.cl-socialButtonsIconButton__google svg,
+.cl-socialButtonsBlockButton__oauth_google img,
+.cl-socialButtonsBlockButton__oauth_google svg,
+.cl-socialButtonsIconButton__oauth_google img,
+.cl-socialButtonsIconButton__oauth_google svg,
+button[data-provider="google"] img,
+button[data-provider="google"] svg,
+button[data-provider="oauth_google"] img,
+button[data-provider="oauth_google"] svg,
+img[alt*="google" i],
+img[alt*="Google" i],
+svg[aria-label*="google" i],
+svg[aria-label*="Google" i] {
+  filter: brightness(1.2) contrast(1.15) drop-shadow(0 0 6px rgba(255, 255, 255, 0.55)) !important;
+}
+
+/* LinkedIn: electric bright blue with neon glow */
+.cl-socialButtonsBlockButton__linkedin img,
+.cl-socialButtonsBlockButton__linkedin svg,
+.cl-socialButtonsIconButton__linkedin img,
+.cl-socialButtonsIconButton__linkedin svg,
+.cl-socialButtonsBlockButton__oauth_linkedin img,
+.cl-socialButtonsBlockButton__oauth_linkedin svg,
+.cl-socialButtonsIconButton__oauth_linkedin img,
+.cl-socialButtonsIconButton__oauth_linkedin svg,
+button[data-provider="linkedin"] img,
+button[data-provider="linkedin"] svg,
+button[data-provider="oauth_linkedin"] img,
+button[data-provider="oauth_linkedin"] svg,
+img[alt*="linkedin" i],
+img[alt*="LinkedIn" i],
+svg[aria-label*="linkedin" i],
+svg[aria-label*="LinkedIn" i] {
+  filter: brightness(1.35) contrast(1.25) drop-shadow(0 0 8px rgba(10, 102, 194, 0.9)) !important;
+}
+
+.cl-dividerLine {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.cl-footer {
+  background: transparent !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.chat-surface {
+  background: transparent;
+}
+
+.message-row {
+  animation: message-enter 180ms ease-out both;
+}
+
+.message-row + .message-row {
+  margin-top: 0.3rem;
+}
+
+.message-row[data-role='user'] + .message-row[data-role='assistant'],
+.message-row[data-role='assistant'] + .message-row[data-role='user'] {
+  margin-top: 0.85rem;
+}
+
+.session-item {
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.session-item:hover {
+  transform: translateX(2px);
+}
+
+.send-button {
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.send-button:not(:disabled):hover {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12), 0 8px 22px rgba(79, 70, 229, 0.28);
+}
+
+.doc-option {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.doc-option input {
+  accent-color: var(--omni-indigo);
+}
+
+.soft-scrollbar {
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+@keyframes message-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes surface-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #818cf8;
+  animation: typing-bounce 1s infinite ease-in-out;
+}
+
+.typing-dot-delay-1 {
+  animation-delay: 0.15s;
+}
+
+.typing-dot-delay-2 {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-sweep-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.12) 25%,
+    rgba(217, 70, 239, 0.28) 50%,
+    rgba(139, 92, 246, 0.12) 75%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 1.8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.8;
+  }
+}
+
+.pulse-glow-circle {
+  animation: pulse-glow 3s infinite ease-in-out;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-glow-circle,
+  .shimmer-sweep-overlay,
+  .auth-card,
+  .animate-spin,
+  body::after,
+  .auth-page::after {
+    animation: none !important;
+  }
+}
+
+/* Enhanced Markdown & Assistant Formatting */
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.25rem;
+  margin-bottom: 0.625rem;
+}
+
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25rem;
+  line-height: 1.6;
+}
+
+.markdown-body strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 0.875rem 0;
 }

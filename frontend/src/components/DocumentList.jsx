@@ -38,7 +38,7 @@ export const DocumentList = ({ refreshTrigger, onDocumentDeleted }) => {
     }
 
     try {
-      const response = await api.get(`/documents/${encodeURIComponent(user)}`);
+      const response = await api.get('/documents');
       setDocuments(response.data || []);
     } catch (err) {
       console.error('Failed to load documents:', err);
@@ -90,9 +90,7 @@ export const DocumentList = ({ refreshTrigger, onDocumentDeleted }) => {
 
     setDeletingId(docId);
     try {
-      await api.delete(`/documents/${docId}`, {
-        params: { username: user },
-      });
+      await api.delete(`/documents/${docId}`);
       // Remove deleted document from state immediately
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
       if (onDocumentDeleted) {
@@ -161,7 +159,7 @@ export const DocumentList = ({ refreshTrigger, onDocumentDeleted }) => {
   };
 
   return (
-    <div className="w-full bg-slate-800/60 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-6 shadow-xl">
+    <div className="w-full glass-panel rounded-2xl p-6 shadow-xl">
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-700/50">
         <div className="flex items-center space-x-3">
           <h3 className="text-base font-semibold text-slate-100">Uploaded Documents</h3>

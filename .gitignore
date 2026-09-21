@@ -52,3 +52,5 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+sql_app.db
+scratch/

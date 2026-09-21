@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, AlertCircle, Lock, User } from 'lucide-react';
+import { m, AnimatePresence, useReducedMotion } from 'motion/react';
 import { BrandHeader } from '../components/BrandHeader';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -8,6 +9,7 @@ import api from '../services/api';
 export const PasswordLogin = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const shouldReduceMotion = useReducedMotion();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -59,8 +61,14 @@ export const PasswordLogin = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-slate-800/80 backdrop-blur-xl border border-slate-700/60 rounded-3xl p-8 shadow-2xl shadow-slate-950/50">
+    <m.div
+      initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -15 }}
+      transition={{ duration: 0.3 }}
+      className="auth-page min-h-screen flex items-center justify-center p-4"
+    >
+      <div className="auth-card w-full max-w-md glass-panel rounded-3xl p-8">
         <Link
           to="/"
           className="inline-flex items-center text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors mb-4"
@@ -70,12 +78,21 @@ export const PasswordLogin = () => {
 
         <BrandHeader subtitle="Enter your credentials to sign in" />
 
-        {error && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-300 text-sm">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-            <div>{error}</div>
-          </div>
-        )}
+        <AnimatePresence>
+          {error && (
+            <m.div
+              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, height: 0, marginBottom: 0 }}
+              animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, height: 'auto', marginBottom: 24 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, height: 0, marginBottom: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-300 text-sm">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div>{error}</div>
+              </div>
+            </m.div>
+          )}
+        </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -93,7 +110,7 @@ export const PasswordLogin = () => {
                 onChange={handleChange}
                 disabled={loading}
                 placeholder="Enter your username"
-                className="w-full pl-11 pr-4 py-3 bg-slate-900/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50 transition-all text-sm"
+                className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 disabled:opacity-50 transition-all text-sm"
               />
             </div>
           </div>
@@ -113,39 +130,41 @@ export const PasswordLogin = () => {
                 onChange={handleChange}
                 disabled={loading}
                 placeholder="Enter your password"
-                className="w-full pl-11 pr-4 py-3 bg-slate-900/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50 transition-all text-sm"
+                className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 disabled:opacity-50 transition-all text-sm"
               />
             </div>
           </div>
 
-          <button
+          <m.button
+            whileHover={shouldReduceMotion || loading ? {} : { scale: 1.02 }}
+            whileTap={shouldReduceMotion || loading ? {} : { scale: 0.98 }}
             type="submit"
             disabled={loading}
-            className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="w-full h-[50px] rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-violet-400 relative overflow-hidden"
           >
             {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                Signing in...
-              </>
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Signing in...</span>
+              </div>
             ) : (
-              'Sign In with Password'
+              <span>Sign In with Password</span>
             )}
-          </button>
+          </m.button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-slate-700/50 text-center">
+        <div className="mt-8 pt-6 border-t border-white/10 text-center">
           <p className="text-sm text-slate-400">
             Don't have an account?{' '}
             <Link
               to="/register"
-              className="font-medium text-indigo-400 hover:text-indigo-300 hover:underline transition-colors"
+              className="font-medium text-violet-400 hover:text-fuchsia-300 hover:underline transition-colors"
             >
               Register
             </Link>
           </p>
         </div>
       </div>
-    </div>
+    </m.div>
   );
 };
